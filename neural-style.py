@@ -11,6 +11,7 @@ import numpy as np
 import skimage
 import tempfile
 
+
 GPU_ID = 0
 CONTENT_IMAGE = './content.jpg'
 STYLE_IMAGE = './style.jpg'
@@ -19,7 +20,6 @@ STYLE_WEIGHT = 1e2
 CONTENT_LAYERS = ['conv4_2']
 STYLE_LAYERS = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv5_1']
 GRAM_LAYERS = ['gram_'+layer for layer in STYLE_LAYERS]
-DROP_LAYERS = ['pool5', 'fc6', 'relu6', 'drop6', 'fc7', 'relu7', 'drop7', 'fc8', 'prob']
 CAFFE_MODEL = './vgg/VGG_ILSVRC_19_layers_deploy.prototxt'
 CAFFE_WEIGHTS = './vgg/VGG_ILSVRC_19_layers.caffemodel'
 
@@ -29,41 +29,64 @@ MEAN = np.array([103.939, 116.779, 123.68])
 caffe.set_mode_gpu()
 caffe.set_device(GPU_ID)
 
-# 1.
-# Load VGG, drop FC layers, inject Gram layers, instantiate the network
+def prune(net_param, used_layers):
+    """Prune the network
+
+    We assume that all layers after the last of used_layers are not useful
+    """
+    prune_from = None
+    for i, layer in enumerate(net_param.layer):
+        for top in layer.top:
+            if prune_from and top in used_layers:
+                prune_from = None
+                break
+            elif not prune_from and top not in used_layers:
+                prune_from = i
+    if prune_from:
+        for i in reversed(range(prune_from, len(net_param.layer))):
+            print('Pruning layer', net_param.layer[i].name)
+            del net_param.layer[i]
+
+
+def adjust(net_param, content_layers, style_layers):
+    """Add additional layers to the network"""
+    gram_layers = ['gram_' + layer for layer in style_layers]
+    for style_layer, gram_layer in zip(style_layers, gram_layers):
+        gram = net_param.layer.add()
+        gram.type = 'Gram'
+        gram.name = gram_layer
+        gram.bottom.append(style_layer)
+        gram.top.append(gram_layer)
+
 
 net_param = caffe_pb2.NetParameter()
 with open(CAFFE_MODEL, 'r') as f:
     pb.text_format.Merge(f.read(), net_param)
 
-# prune the network
-LAYERS = CONTENT_LAYERS + STYLE_LAYERS
-remove_from = None
-for i, layer in enumerate(net_param.layer):
-    for top in layer.top:
-        if remove_from:
-            if top in LAYERS:
-                remove_from = None
-                break
-        else:
-            if top not in LAYERS:
-                remove_from = i
 
-if remove_from:
-    for i in reversed(range(remove_from, len(net_param.layer))):
-        print('Dropping layer', net_param.layer[i].name)
-        del net_param.layer[i]
+prune(net_param, CONTENT_LAYERS+STYLE_LAYERS)
+adjust(net_param, CONTENT_LAYERS, STYLE_LAYERS)
 
-#for i in reversed(range(len(net_param.layer))):
-#    if net_param.layer[i].name in DROP_LAYERS:
-#        del net_param.layer[i]
 
-for style_layer, gram_layer in zip(STYLE_LAYERS, GRAM_LAYERS):
-    gram = net_param.layer.add()
-    gram.type = 'Gram'
-    gram.name = gram_layer
-    gram.bottom.append(style_layer)
-    gram.top.append(gram_layer)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 with tempfile.NamedTemporaryFile() as tmp:
@@ -111,7 +134,9 @@ transformer.inputs['data'] = data_shape
 net.blobs['data'].data[0] = transformer.preprocess('data', content_img)
 net.forward()
 content_activations = {}
+content_layer_sizes = {}
 for layer in CONTENT_LAYERS:
+    content_layer_sizes[layer] = net.blobs[layer].data.size
     content_activations[layer] = net.blobs[layer].data.copy()
 
 # 4.
@@ -134,7 +159,8 @@ for name in CONTENT_LAYERS:
     layer = net_param.layer.add()
     layer.type = 'EuclideanLoss'
     layer.name = 'loss_'+name
-    layer.loss_weight.append(2*CONTENT_WEIGHT/reduce(lambda x,y: x*y, data_shape))
+    ze_size = content_layer_sizes[name]
+    layer.loss_weight.append(2*CONTENT_WEIGHT/ze_size)
     layer.bottom.append('input_'+name)
     layer.bottom.append(name)
     layer.top.append('loss_'+name)
@@ -201,7 +227,7 @@ for name in GRAM_LAYERS:
 # 7.
 # Optimize
 
-solver.step(600)
+solver.step(500)
 
 # TODO deal with the warning: 'UserWarning: Possible precision loss when converting from float32 to uint8'
 # TODO deal with the error: 'ValueError: Images of type float must be between -1 and 1.' (i.e. get rid of np.clip)
