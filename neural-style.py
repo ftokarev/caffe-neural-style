@@ -204,6 +204,8 @@ solver_param.display = 10
 #net_param.debug_info = True
 #solver_param.debug_info = True
 
+del net
+
 with tempfile.NamedTemporaryFile() as net_proto:
     net_proto.write(pb.text_format.MessageToString(net_param))
     net_proto.seek(0)
