@@ -18,6 +18,7 @@ STYLE_IMAGE = 'style.jpg'
 OUTPUT_IMAGE = 'output.jpg'
 CONTENT_WEIGHT = 5e0
 STYLE_WEIGHT = 1e2
+TV_LOSS_WEIGHT = 1e-5
 CONTENT_LAYERS = ['conv4_2']
 STYLE_LAYERS = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv5_1']
 GRAM_LAYERS = ['gram_'+layer for layer in STYLE_LAYERS]
@@ -142,6 +143,15 @@ for name in STYLE_LAYERS:
     layer.bottom.append(gram_name)
     layer.top.append('loss_'+gram_name)
 
+# add TV Loss
+layer = net_param.layer.add()
+weight = TV_LOSS_WEIGHT
+layer.type = 'TVLoss'
+layer.name = 'loss_tv'
+layer.loss_weight.append(weight)
+layer.bottom.append('data')
+layer.top.append('loss_tv')
+
 # replace InputLayer with ParameterLayer,
 # so that we'll be able to backprop into the image
 for layer in net_param.layer:
@@ -152,7 +162,7 @@ for layer in net_param.layer:
         break
 
 for layer in net_param.layer:
-    if layer.type not in ['EuclideanLoss', 'Gram', 'Input', 'Parameter', 'Pooling', 'ReLU']:
+    if layer.type not in ['EuclideanLoss', 'TVLoss', 'Gram', 'Input', 'Parameter', 'Pooling', 'ReLU']:
         # do not backprop into weights and biases of conv layers
         param = layer.param.add()
         param.lr_mult = 0
