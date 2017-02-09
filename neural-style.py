@@ -78,6 +78,9 @@ def prepare_input_param(net, transformer, img):
     net.params['input'][0].reshape(*data_shape)
     net.params['input'][0].data[0] = transformer.preprocess('data', img)
 
+#
+# 1 get content and style activations
+#
 
 net_param = caffe_pb2.NetParameter()
 with open(CAFFE_MODEL, 'r') as f:
@@ -112,6 +115,10 @@ net.forward()
 content_activations = {}
 for layer in CONTENT_LAYERS:
     content_activations[layer] = net.blobs[layer].data.copy()
+
+#
+# 2 prepare the network by adding the necessary layers
+#
 
 for name in CONTENT_LAYERS+GRAM_LAYERS:
     layer = net_param.layer.add()
@@ -161,15 +168,19 @@ for layer in net_param.layer:
             layer.parameter_param.shape.dim.append(dim)
         break
 
+# disable weights learning
 for layer in net_param.layer:
     if layer.type not in ['EuclideanLoss', 'TVLoss', 'Gram', 'Input', 'Parameter', 'Pooling', 'ReLU']:
-        # do not backprop into weights and biases of conv layers
         param = layer.param.add()
         param.lr_mult = 0
         param = layer.param.add()
         param.lr_mult = 0
 
 del net
+
+#
+# 3 create solver, assign inputs
+#
 
 solver_param = caffe_pb2.SolverParameter()
 solver_param.display = DISPLAY_EVERY
@@ -193,9 +204,12 @@ for name in CONTENT_LAYERS:
 for name in GRAM_LAYERS:
     solver.net.blobs['input_'+name].data[0] = gram_activations[name][0]
 
+#
+# 4 optimize!
+#
+
 solver.step(NUM_ITER)
 
-# TODO deal with the warning: 'UserWarning: Possible precision loss when converting from float32 to uint8'
 result = transformer.deprocess('data', solver.net.params['input'][0].data[0])
 skimage.io.imsave(OUTPUT_IMAGE, np.clip(result, 0, 1))
 
