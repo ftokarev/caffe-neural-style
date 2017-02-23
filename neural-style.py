@@ -20,6 +20,7 @@ INTERMEDIATE_IMAGE = 'output_%s.jpg'
 CONTENT_WEIGHT = 5e0
 STYLE_WEIGHT = 1e2
 TV_LOSS_WEIGHT = 1e-2
+INIT_IMAGE = 'random' # random|content
 CONTENT_LAYERS = ['conv4_2']
 STYLE_LAYERS = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv5_1']
 GRAM_LAYERS = ['gram_'+layer for layer in STYLE_LAYERS]
@@ -197,8 +198,15 @@ with tempfile.NamedTemporaryFile() as net_proto:
         solver = caffe.LBFGSSolver(solver_proto.name)
         solver.net.copy_from(CAFFE_WEIGHTS)
 
-target_img = content_img
-prepare_input_param(solver.net, transformer, target_img)
+if INIT_IMAGE == 'random':
+    # TODO channel swap should be internal to transformer
+    h, w, c = content_img.shape
+    target_img = np.random.normal(size=(c,h,w)) * 0.001
+elif INIT_IMAGE == 'content':
+    target_img = content_img
+    prepare_input_param(solver.net, transformer, target_img)
+else:
+    raise ValueError('Unknown value for INIT_IMAGE: ' + INIT_IMAGE)
 
 for name in CONTENT_LAYERS:
     solver.net.blobs['input_'+name].data[0] = content_activations[name][0]
