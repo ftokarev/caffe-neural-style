@@ -16,16 +16,18 @@ GPU_ID = 0
 CONTENT_IMAGE = 'content.jpg'
 STYLE_IMAGE = 'style.jpg'
 OUTPUT_IMAGE = 'output.jpg'
+INTERMEDIATE_IMAGE = 'output_%s.jpg'
 CONTENT_WEIGHT = 5e0
 STYLE_WEIGHT = 1e2
-TV_LOSS_WEIGHT = 1e-5
+TV_LOSS_WEIGHT = 1e-2
 CONTENT_LAYERS = ['conv4_2']
 STYLE_LAYERS = ['conv1_1', 'conv2_1', 'conv3_1', 'conv4_1', 'conv5_1']
 GRAM_LAYERS = ['gram_'+layer for layer in STYLE_LAYERS]
 CAFFE_MODEL = 'vgg/VGG_ILSVRC_19_layers_deploy.prototxt'
 CAFFE_WEIGHTS = 'vgg/VGG_ILSVRC_19_layers.caffemodel'
 DISPLAY_EVERY = 10
-NUM_ITER = 500
+SAVE_EVERY = 100
+NUM_ITER = 1000
 
 caffe.set_mode_gpu()
 caffe.set_device(GPU_ID)
@@ -204,14 +206,19 @@ for name in CONTENT_LAYERS:
 for name in GRAM_LAYERS:
     solver.net.blobs['input_'+name].data[0] = gram_activations[name][0]
 
+def save(filename):
+    result = transformer.deprocess('data', solver.net.params['input'][0].data[0])
+    skimage.io.imsave(filename, np.clip(result, 0, 1))
+
+
 #
 # 4 optimize!
 #
+for i in range(NUM_ITER // SAVE_EVERY):
+    save(INTERMEDIATE_IMAGE % (i * SAVE_EVERY))
+    solver.step(SAVE_EVERY)
 
-solver.step(NUM_ITER)
-
-result = transformer.deprocess('data', solver.net.params['input'][0].data[0])
-skimage.io.imsave(OUTPUT_IMAGE, np.clip(result, 0, 1))
+save(OUTPUT_IMAGE)
 
 print("Done")
 
